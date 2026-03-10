@@ -20,7 +20,7 @@ function getDb() {
 }
 
 function setupDatabase(ss) {
-  const sheets = ['Products', 'Transactions', 'Logs'];
+  const sheets = ['Products', 'Transactions', 'Logs', 'Settings'];
   sheets.forEach(name => {
     let sheet = ss.getSheetByName(name);
     if (!sheet) {
@@ -31,6 +31,12 @@ function setupDatabase(ss) {
         sheet.appendRow(['id', 'date', 'total_amount', 'items', 'payment_method']);
       } else if (name === 'Logs') {
         sheet.appendRow(['id', 'date', 'action', 'details']);
+      } else if (name === 'Settings') {
+        sheet.appendRow(['key', 'value']);
+        sheet.appendRow(['storeName', 'EDUPOS STORE']);
+        sheet.appendRow(['storeAddress', 'Jl. Teknologi No. 123, Jakarta']);
+        sheet.appendRow(['storePhone', '0812-3456-7890']);
+        sheet.appendRow(['taxRate', '10']);
       }
     }
   });
@@ -151,6 +157,38 @@ function logAction(action, details) {
   sheet.appendRow([id, new Date().toISOString(), action, details]);
 }
 
+function getSettings() {
+  const sheet = getDb().getSheetByName('Settings');
+  const data = sheet.getDataRange().getValues();
+  let settings = {};
+  for (let i = 1; i < data.length; i++) {
+    settings[data[i][0]] = data[i][1];
+  }
+  return settings;
+}
+
+function saveSettings(settings) {
+  const sheet = getDb().getSheetByName('Settings');
+  const data = sheet.getDataRange().getValues();
+
+  const keys = Object.keys(settings);
+  for (let k of keys) {
+    let found = false;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === k) {
+        sheet.getRange(i + 1, 2).setValue(settings[k]);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      sheet.appendRow([k, settings[k]]);
+    }
+  }
+  logAction('Update Settings', 'Store settings updated');
+  return { success: true };
+}
+
 function getDashboardSummary() {
   const ss = getDb();
   const txSheet = ss.getSheetByName('Transactions');
@@ -161,12 +199,32 @@ function getDashboardSummary() {
 
   let totalSales = 0;
   let txCount = 0;
+
+  // Chart Data preparation (Last 7 days)
+  let salesByDate = {};
+  for(let i=0; i<7; i++) {
+    let d = new Date();
+    d.setDate(d.getDate() - i);
+    let dateStr = Utilities.formatDate(d, "Asia/Jakarta", "yyyy-MM-dd");
+    salesByDate[dateStr] = 0;
+  }
+
   if (txData.length > 1) {
     txCount = txData.length - 1;
     for (let i = 1; i < txData.length; i++) {
-      totalSales += Number(txData[i][2]) || 0;
+      const amount = Number(txData[i][2]) || 0;
+      totalSales += amount;
+
+      const txDate = new Date(txData[i][1]);
+      const dateStr = Utilities.formatDate(txDate, "Asia/Jakarta", "yyyy-MM-dd");
+      if (salesByDate[dateStr] !== undefined) {
+        salesByDate[dateStr] += amount;
+      }
     }
   }
+
+  let chartLabels = Object.keys(salesByDate).reverse();
+  let chartData = chartLabels.map(d => salesByDate[d]);
 
   let totalProducts = prdData.length > 1 ? prdData.length - 1 : 0;
 
@@ -179,5 +237,5 @@ function getDashboardSummary() {
     })).reverse();
   }
 
-  return { totalSales, txCount, totalProducts, recentTx };
+  return { totalSales, txCount, totalProducts, recentTx, chartLabels, chartData };
 }
